@@ -6,32 +6,29 @@ on:
     - cron: '0 4 * * 0'
 
 jobs:
-  lighthouse:
+  audit:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Run Lighthouse via Official Action
+        uses: treosh/lighthouse-ci-action@v10
         with:
-          node-version: 18
+          urls: |
+            https://silk-spices.web.app/index.html
+          uploadArtifacts: true
+          temporaryPublicStorage: true
 
-      - name: Install Lighthouse
-        run: npm install -g lighthouse
-
-      - name: Run Lighthouse
+      - name: Rename Lighthouse Report
         run: |
-          lighthouse https://silk-spices.web.app/index.html \
-            --output=json \
-            --output-path=report.json \
-            --chrome-flags="--headless --no-sandbox"
+          cp .lighthouseci/*.report.json report.json
 
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Create Prompt
+      - name: Create AI Request
         run: |
           REPORT=$(jq -c . report.json | head -c 10000)
 
@@ -58,12 +55,6 @@ jobs:
             -H "X-Title: SilkSpices Audit" \
             --data @request.json \
             -o ai-response.json
-
-      - name: Upload Lighthouse Report
-        uses: actions/upload-artifact@v4
-        with:
-          name: lighthouse-report
-          path: report.json
 
       - name: Upload AI Analysis
         uses: actions/upload-artifact@v4
