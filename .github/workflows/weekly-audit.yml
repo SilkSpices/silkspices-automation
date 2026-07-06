@@ -2,7 +2,7 @@ name: Weekly Website Audit
 
 on:
   schedule:
-    - cron: '0 4 * * 0'   # Every Sunday 4 AM UTC
+    - cron: '0 4 * * 0'
   workflow_dispatch:
 
 jobs:
@@ -31,11 +31,11 @@ jobs:
       - name: Install jq
         run: sudo apt-get install -y jq
 
-      - name: Prepare Claude Prompt
+      - name: Prepare Prompt
         run: |
-          REPORT=$(jq -c . report.json | head -c 15000)
+          REPORT=$(jq -c . report.json | head -c 12000)
 
-          echo "You are a global ecommerce website auditor.
+          echo "You are an ecommerce website audit expert.
           
           Analyze this Lighthouse audit data and provide:
           
@@ -50,18 +50,18 @@ jobs:
           Audit Data:
           $REPORT" > prompt.txt
 
-      - name: Send To Claude
+      - name: Send to Free AI (OpenRouter)
         run: |
-          curl https://api.anthropic.com/v1/messages \
+          curl https://openrouter.ai/api/v1/chat/completions \
+            -H "Authorization: Bearer ${{ secrets.OPENROUTER_API_KEY }}" \
             -H "Content-Type: application/json" \
-            -H "x-api-key: ${{ secrets.ANTHROPIC_API_KEY }}" \
-            -H "anthropic-version: 2023-06-01" \
             -d @<(jq -n --arg prompt "$(cat prompt.txt)" '{
-              model: "claude-3-sonnet-20240229",
-              max_tokens: 2000,
-              messages: [{role: "user", content: $prompt}]
+              model: "mistralai/mistral-7b-instruct:free",
+              messages: [
+                {role: "user", content: $prompt}
+              ]
             }') \
-            -o claude-response.json
+            -o ai-response.json
 
       - name: Upload Lighthouse Report
         uses: actions/upload-artifact@v4
@@ -69,8 +69,8 @@ jobs:
           name: lighthouse-report
           path: report.json
 
-      - name: Upload Claude Analysis
+      - name: Upload AI Analysis
         uses: actions/upload-artifact@v4
         with:
-          name: claude-analysis
-          path: claude-response.json
+          name: ai-analysis
+          path: ai-response.json
