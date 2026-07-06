@@ -11,6 +11,7 @@ jobs:
 
     permissions:
       contents: write
+      issues: write
 
     steps:
       - name: Checkout repository
@@ -27,8 +28,8 @@ jobs:
       - name: Copy Lighthouse JSON
         run: cp .lighthouseci/*.report.json report.json
 
-      - name: Install jq & bc
-        run: sudo apt-get update && sudo apt-get install -y jq bc
+      - name: Install jq, bc & python
+        run: sudo apt-get update && sudo apt-get install -y jq bc python3 python3-matplotlib
 
       - name: Extract Metrics
         run: |
@@ -45,7 +46,8 @@ jobs:
 
           echo "$DATE,$PERFORMANCE,$SEO,$ACCESSIBILITY,$BEST,$LCP,$CLS,$TBT" >> metrics-history.csv
 
-      - name: Trend Analysis
+      - name: Compute Trend & Regression
+        id: trend
         run: |
           ROWS=$(wc -l < metrics-history.csv)
 
@@ -58,68 +60,73 @@ jobs:
 
             DIFF=$((CURR_PERF - PREV_PERF))
 
-            if [ "$DIFF" -gt 0 ]; then
-              TREND="Performance improved by $DIFF%"
-            elif [ "$DIFF" -lt 0 ]; then
-              TREND="Performance dropped by ${DIFF#-}% (Regression)"
+            if [ "$DIFF" -lt -5 ]; then
+              echo "REGRESSION=true" >> $GITHUB_ENV
+              echo "DELTA=Performance dropped by ${DIFF#-}%" >> $GITHUB_ENV
+            elif [ "$DIFF" -gt 0 ]; then
+              echo "REGRESSION=false" >> $GITHUB_ENV
+              echo "DELTA=Performance improved by $DIFF%" >> $GITHUB_ENV
             else
-              TREND="Performance unchanged"
+              echo "REGRESSION=false" >> $GITHUB_ENV
+              echo "DELTA=Performance unchanged" >> $GITHUB_ENV
             fi
           else
-            TREND="No previous data for comparison"
+            echo "REGRESSION=false" >> $GITHUB_ENV
+            echo "DELTA=No previous data" >> $GITHUB_ENV
           fi
 
-          echo "$TREND" > trend.txt
+      - name: Generate Rolling Average
+        run: |
+          AVG=$(tail -n 4 metrics-history.csv | awk -F',' '{sum+=$2; count++} END {if(count>0) print int(sum/count); else print 0}')
+          echo "ROLLING_AVG=$AVG" >> $GITHUB_ENV
 
       - name: Generate Executive Report
         run: |
           LAST=$(tail -n 1 metrics-history.csv)
           IFS=',' read DATE PERFORMANCE SEO ACCESSIBILITY BEST LCP CLS TBT <<< "$LAST"
 
-          RISK="LOW"
-          if [ "$PERFORMANCE" -lt 70 ]; then RISK="HIGH"; fi
-          if [ "$LCP" -gt 3000 ]; then RISK="HIGH"; fi
-          if [ "$TBT" -gt 800 ]; then RISK="HIGH"; fi
-
           echo "WEEKLY WEBSITE INTELLIGENCE REPORT" > weekly-summary.txt
           echo "----------------------------------" >> weekly-summary.txt
           echo "Date: $DATE" >> weekly-summary.txt
           echo "" >> weekly-summary.txt
           echo "Performance: $PERFORMANCE%" >> weekly-summary.txt
-          echo "SEO: $SEO%" >> weekly-summary.txt
-          echo "Accessibility: $ACCESSIBILITY%" >> weekly-summary.txt
-          echo "Best Practices: $BEST%" >> weekly-summary.txt
+          echo "4-Week Avg: $ROLLING_AVG%" >> weekly-summary.txt
+          echo "$DELTA" >> weekly-summary.txt
           echo "" >> weekly-summary.txt
           echo "LCP: ${LCP}ms" >> weekly-summary.txt
           echo "CLS: $CLS" >> weekly-summary.txt
           echo "TBT: ${TBT}ms" >> weekly-summary.txt
-          echo "" >> weekly-summary.txt
-          echo "Overall Risk Level: $RISK" >> weekly-summary.txt
-          echo "" >> weekly-summary.txt
-          echo "Trend Analysis:" >> weekly-summary.txt
-          cat trend.txt >> weekly-summary.txt
 
-      - name: Generate Dev Plan
+      - name: Create Regression Issue
+        if: env.REGRESSION == 'true'
+        uses: peter-evans/create-issue-from-file@v4
+        with:
+          title: "🚨 Performance Regression Detected"
+          content-filepath: weekly-summary.txt
+          labels: regression, performance
+
+      - name: Generate Performance Chart
         run: |
-          LAST=$(tail -n 1 metrics-history.csv)
-          IFS=',' read DATE PERFORMANCE SEO ACCESSIBILITY BEST LCP CLS TBT <<< "$LAST"
+          python3 <<EOF
+          import matplotlib.pyplot as plt
+          import csv
 
-          echo "TECHNICAL ACTION PLAN" > dev-action-plan.txt
-          echo "---------------------" >> dev-action-plan.txt
+          dates = []
+          perf = []
 
-          if [ "$PERFORMANCE" -lt 80 ]; then
-            echo "- Optimize image compression & next-gen formats" >> dev-action-plan.txt
-            echo "- Enable server-side caching" >> dev-action-plan.txt
-            echo "- Minify and defer JavaScript" >> dev-action-plan.txt
-          fi
+          with open("metrics-history.csv") as f:
+              reader = csv.DictReader(f)
+              for row in reader:
+                  dates.append(row["date"])
+                  perf.append(int(row["performance"]))
 
-          if [ "$LCP" -gt 2500 ]; then
-            echo "- Reduce LCP under 2.5s" >> dev-action-plan.txt
-          fi
-
-          if [ "$TBT" -gt 600 ]; then
-            echo "- Break large JS bundles & remove unused scripts" >> dev-action-plan.txt
-          fi
+          plt.figure()
+          plt.plot(dates, perf)
+          plt.xticks(rotation=45)
+          plt.title("Website Performance Trend")
+          plt.tight_layout()
+          plt.savefig("performance-trend.png")
+          EOF
 
       - name: Commit Updated Metrics
         run: |
@@ -129,20 +136,14 @@ jobs:
           git commit -m "Update weekly metrics"
           git push
 
-      - name: Upload Executive Report
+      - name: Upload Reports
         uses: actions/upload-artifact@v4
         with:
           name: executive-report
           path: weekly-summary.txt
 
-      - name: Upload Dev Action Plan
+      - name: Upload Performance Chart
         uses: actions/upload-artifact@v4
         with:
-          name: dev-action-plan
-          path: dev-action-plan.txt
-
-      - name: Upload Metrics CSV
-        uses: actions/upload-artifact@v4
-        with:
-          name: metrics-history
-          path: metrics-history.csv
+          name: performance-chart
+          path: performance-trend.png
