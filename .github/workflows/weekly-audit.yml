@@ -1,0 +1,35 @@
+name: Weekly Website Audit
+
+on:
+  schedule:
+    - cron: '0 4 * * 0'   # Runs every Sunday at 4 AM UTC
+  workflow_dispatch:
+
+jobs:
+  lighthouse:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install Lighthouse
+        run: npm install -g lighthouse
+
+      - name: Run Lighthouse Audit
+        run: |
+          lighthouse https://silk-spices.web.app/index.html \
+          --output=json \
+          --output-path=report.json \
+          --chrome-flags="--headless --no-sandbox"
+
+      - name: Upload Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-report
+          path: report.json
