@@ -9,6 +9,9 @@ jobs:
   audit:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -24,11 +27,13 @@ jobs:
       - name: Copy Lighthouse JSON
         run: cp .lighthouseci/*.report.json report.json
 
-      - name: Install jq
+      - name: Install jq & bc
         run: sudo apt-get update && sudo apt-get install -y jq bc
 
       - name: Extract Metrics
         run: |
+          DATE=$(date +%Y-%m-%d)
+
           PERFORMANCE=$(jq '.categories.performance.score * 100' report.json | cut -d'.' -f1)
           SEO=$(jq '.categories.seo.score * 100' report.json | cut -d'.' -f1)
           ACCESSIBILITY=$(jq '.categories.accessibility.score * 100' report.json | cut -d'.' -f1)
@@ -38,35 +43,47 @@ jobs:
           CLS=$(jq '.audits["cumulative-layout-shift"].numericValue' report.json)
           TBT=$(jq '.audits["total-blocking-time"].numericValue' report.json | cut -d'.' -f1)
 
-          echo "PERFORMANCE=$PERFORMANCE" >> metrics.env
-          echo "SEO=$SEO" >> metrics.env
-          echo "ACCESSIBILITY=$ACCESSIBILITY" >> metrics.env
-          echo "BEST=$BEST" >> metrics.env
-          echo "LCP=$LCP" >> metrics.env
-          echo "CLS=$CLS" >> metrics.env
-          echo "TBT=$TBT" >> metrics.env
+          echo "$DATE,$PERFORMANCE,$SEO,$ACCESSIBILITY,$BEST,$LCP,$CLS,$TBT" >> metrics-history.csv
 
-      - name: Load Metrics
-        run: cat metrics.env
-
-      - name: Generate Intelligence Reports
+      - name: Trend Analysis
         run: |
-          source metrics.env
+          ROWS=$(wc -l < metrics-history.csv)
 
-          # ----- Risk Calculation -----
+          if [ "$ROWS" -gt 2 ]; then
+            PREV=$(tail -n 2 metrics-history.csv | head -n 1)
+            CURR=$(tail -n 1 metrics-history.csv)
+
+            PREV_PERF=$(echo $PREV | cut -d',' -f2)
+            CURR_PERF=$(echo $CURR | cut -d',' -f2)
+
+            DIFF=$((CURR_PERF - PREV_PERF))
+
+            if [ "$DIFF" -gt 0 ]; then
+              TREND="Performance improved by $DIFF%"
+            elif [ "$DIFF" -lt 0 ]; then
+              TREND="Performance dropped by ${DIFF#-}% (Regression)"
+            else
+              TREND="Performance unchanged"
+            fi
+          else
+            TREND="No previous data for comparison"
+          fi
+
+          echo "$TREND" > trend.txt
+
+      - name: Generate Executive Report
+        run: |
+          LAST=$(tail -n 1 metrics-history.csv)
+          IFS=',' read DATE PERFORMANCE SEO ACCESSIBILITY BEST LCP CLS TBT <<< "$LAST"
+
           RISK="LOW"
           if [ "$PERFORMANCE" -lt 70 ]; then RISK="HIGH"; fi
           if [ "$LCP" -gt 3000 ]; then RISK="HIGH"; fi
           if [ "$TBT" -gt 800 ]; then RISK="HIGH"; fi
 
-          # ----- Revenue Impact Estimation -----
-          REVENUE_IMPACT="Minimal"
-          if [ "$LCP" -gt 4000 ]; then REVENUE_IMPACT="Estimated 20-30% conversion suppression"; fi
-          if [ "$PERFORMANCE" -lt 60 ]; then REVENUE_IMPACT="Estimated 25-40% revenue suppression"; fi
-
-          # ----- Executive Report -----
           echo "WEEKLY WEBSITE INTELLIGENCE REPORT" > weekly-summary.txt
           echo "----------------------------------" >> weekly-summary.txt
+          echo "Date: $DATE" >> weekly-summary.txt
           echo "" >> weekly-summary.txt
           echo "Performance: $PERFORMANCE%" >> weekly-summary.txt
           echo "SEO: $SEO%" >> weekly-summary.txt
@@ -78,9 +95,15 @@ jobs:
           echo "TBT: ${TBT}ms" >> weekly-summary.txt
           echo "" >> weekly-summary.txt
           echo "Overall Risk Level: $RISK" >> weekly-summary.txt
-          echo "Revenue Impact Estimate: $REVENUE_IMPACT" >> weekly-summary.txt
+          echo "" >> weekly-summary.txt
+          echo "Trend Analysis:" >> weekly-summary.txt
+          cat trend.txt >> weekly-summary.txt
 
-          # ----- Dev Action Plan -----
+      - name: Generate Dev Plan
+        run: |
+          LAST=$(tail -n 1 metrics-history.csv)
+          IFS=',' read DATE PERFORMANCE SEO ACCESSIBILITY BEST LCP CLS TBT <<< "$LAST"
+
           echo "TECHNICAL ACTION PLAN" > dev-action-plan.txt
           echo "---------------------" >> dev-action-plan.txt
 
@@ -91,16 +114,20 @@ jobs:
           fi
 
           if [ "$LCP" -gt 2500 ]; then
-            echo "- Reduce LCP under 2.5s (optimize hero image & backend response time)" >> dev-action-plan.txt
-          fi
-
-          if (( $(echo "$CLS > 0.1" | bc -l) )); then
-            echo "- Define explicit width/height for images to reduce layout shift" >> dev-action-plan.txt
+            echo "- Reduce LCP under 2.5s" >> dev-action-plan.txt
           fi
 
           if [ "$TBT" -gt 600 ]; then
-            echo "- Break large JS bundles and remove unused scripts" >> dev-action-plan.txt
+            echo "- Break large JS bundles & remove unused scripts" >> dev-action-plan.txt
           fi
+
+      - name: Commit Updated Metrics
+        run: |
+          git config user.name "AI CTO Bot"
+          git config user.email "bot@silkspices.com"
+          git add metrics-history.csv
+          git commit -m "Update weekly metrics"
+          git push
 
       - name: Upload Executive Report
         uses: actions/upload-artifact@v4
@@ -113,3 +140,9 @@ jobs:
         with:
           name: dev-action-plan
           path: dev-action-plan.txt
+
+      - name: Upload Metrics CSV
+        uses: actions/upload-artifact@v4
+        with:
+          name: metrics-history
+          path: metrics-history.csv
