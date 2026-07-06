@@ -2,7 +2,7 @@ name: Weekly Website Audit
 
 on:
   schedule:
-    - cron: '0 4 * * 0'
+    - cron: '0 4 * * 0'   # Every Sunday at 4 AM UTC
   workflow_dispatch:
 
 jobs:
@@ -29,16 +29,16 @@ jobs:
           --chrome-flags="--headless --no-sandbox"
 
       - name: Install jq
-        run: sudo apt-get install -y jq
+        run: sudo apt-get update && sudo apt-get install -y jq
 
       - name: Prepare Prompt
         run: |
           REPORT=$(jq -c . report.json | head -c 12000)
 
           echo "You are an ecommerce website audit expert.
-          
+
           Analyze this Lighthouse audit data and provide:
-          
+
           1. Executive Summary
           2. Performance Analysis
           3. SEO Issues
@@ -46,21 +46,30 @@ jobs:
           5. Conversion Impact
           6. Top 5 Priority Fixes
           7. Revenue Risk Level (Low/Medium/High)
-          
+
           Audit Data:
           $REPORT" > prompt.txt
 
       - name: Send to Free AI (OpenRouter)
         run: |
-          curl https://openrouter.ai/api/v1/chat/completions \
-            -H "Authorization: Bearer ${{ secrets.OPENROUTER_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d @<(jq -n --arg prompt "$(cat prompt.txt)" '{
-              model: "mistralai/mistral-7b-instruct:free",
+          PROMPT_CONTENT=$(cat prompt.txt)
+
+          jq -n \
+            --arg model "mistralai/mistral-7b-instruct:free" \
+            --arg prompt "$PROMPT_CONTENT" \
+            '{
+              model: $model,
               messages: [
                 {role: "user", content: $prompt}
               ]
-            }') \
+            }' > request.json
+
+          curl https://openrouter.ai/api/v1/chat/completions \
+            -H "Authorization: Bearer ${{ secrets.OPENROUTER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -H "HTTP-Referer: https://github.com" \
+            -H "X-Title: SilkSpices Audit" \
+            -d @request.json \
             -o ai-response.json
 
       - name: Upload Lighthouse Report
