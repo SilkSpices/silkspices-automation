@@ -2,7 +2,7 @@ name: Weekly Website Audit
 
 on:
   schedule:
-    - cron: '0 4 * * 0'   # Runs every Sunday at 4 AM UTC
+    - cron: '0 4 * * 0'   # Every Sunday 4 AM UTC
   workflow_dispatch:
 
 jobs:
@@ -28,8 +28,49 @@ jobs:
           --output-path=report.json \
           --chrome-flags="--headless --no-sandbox"
 
-      - name: Upload Report
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Prepare Claude Prompt
+        run: |
+          REPORT=$(jq -c . report.json | head -c 15000)
+
+          echo "You are a global ecommerce website auditor.
+          
+          Analyze this Lighthouse audit data and provide:
+          
+          1. Executive Summary
+          2. Performance Analysis
+          3. SEO Issues
+          4. Accessibility Risks
+          5. Conversion Impact
+          6. Top 5 Priority Fixes
+          7. Revenue Risk Level (Low/Medium/High)
+          
+          Audit Data:
+          $REPORT" > prompt.txt
+
+      - name: Send To Claude
+        run: |
+          curl https://api.anthropic.com/v1/messages \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: ${{ secrets.ANTHROPIC_API_KEY }}" \
+            -H "anthropic-version: 2023-06-01" \
+            -d @<(jq -n --arg prompt "$(cat prompt.txt)" '{
+              model: "claude-3-sonnet-20240229",
+              max_tokens: 2000,
+              messages: [{role: "user", content: $prompt}]
+            }') \
+            -o claude-response.json
+
+      - name: Upload Lighthouse Report
         uses: actions/upload-artifact@v4
         with:
           name: lighthouse-report
           path: report.json
+
+      - name: Upload Claude Analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-analysis
+          path: claude-response.json
