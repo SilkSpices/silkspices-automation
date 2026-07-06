@@ -28,21 +28,19 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Create AI Request
+      - name: Create Safe AI Request JSON
         run: |
-          REPORT=$(jq -c . report.json | head -c 10000)
+          REPORT=$(jq -c . report.json | head -c 8000)
 
-          cat <<EOF > request.json
-          {
-            "model": "openchat/openchat-3.5-0106:free",
-            "messages": [
-              {
-                "role": "user",
-                "content": "You are an ecommerce website audit expert. Analyze this Lighthouse report and provide an executive summary, performance insights, SEO issues, accessibility risks, top 5 fixes, and revenue risk level.\n\n$REPORT"
-              }
-            ]
-          }
-          EOF
+          jq -n \
+            --arg model "openchat/openchat-3.5-0106:free" \
+            --arg content "You are an ecommerce website audit expert. Analyze this Lighthouse report and provide an executive summary, performance insights, SEO issues, accessibility risks, top 5 fixes, and revenue risk level.\n\n$REPORT" \
+            '{
+              model: $model,
+              messages: [
+                { role: "user", content: $content }
+              ]
+            }' > request.json
 
       - name: Call OpenRouter API
         env:
