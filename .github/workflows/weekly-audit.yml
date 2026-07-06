@@ -1,16 +1,16 @@
 name: Weekly Website Audit
 
 on:
-  schedule:
-    - cron: '0 4 * * 0'   # Every Sunday at 4 AM UTC
   workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * 0'
 
 jobs:
   lighthouse:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node
@@ -21,55 +21,42 @@ jobs:
       - name: Install Lighthouse
         run: npm install -g lighthouse
 
-      - name: Run Lighthouse Audit
+      - name: Run Lighthouse
         run: |
           lighthouse https://silk-spices.web.app/index.html \
-          --output=json \
-          --output-path=report.json \
-          --chrome-flags="--headless --no-sandbox"
+            --output=json \
+            --output-path=report.json \
+            --chrome-flags="--headless --no-sandbox"
 
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Prepare Prompt
+      - name: Create Prompt
         run: |
-          REPORT=$(jq -c . report.json | head -c 12000)
+          REPORT=$(jq -c . report.json | head -c 10000)
 
-          echo "You are an ecommerce website audit expert.
+          cat <<EOF > request.json
+          {
+            "model": "openchat/openchat-3.5-0106:free",
+            "messages": [
+              {
+                "role": "user",
+                "content": "You are an ecommerce website audit expert. Analyze this Lighthouse report and provide an executive summary, performance insights, SEO issues, accessibility risks, top 5 fixes, and revenue risk level.\n\n$REPORT"
+              }
+            ]
+          }
+          EOF
 
-          Analyze this Lighthouse audit data and provide:
-
-          1. Executive Summary
-          2. Performance Analysis
-          3. SEO Issues
-          4. Accessibility Risks
-          5. Conversion Impact
-          6. Top 5 Priority Fixes
-          7. Revenue Risk Level (Low/Medium/High)
-
-          Audit Data:
-          $REPORT" > prompt.txt
-
-      - name: Send to Free AI (OpenRouter)
+      - name: Call OpenRouter API
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          PROMPT_CONTENT=$(cat prompt.txt)
-
-          jq -n \
-            --arg model "mistralai/mistral-7b-instruct:free" \
-            --arg prompt "$PROMPT_CONTENT" \
-            '{
-              model: $model,
-              messages: [
-                {role: "user", content: $prompt}
-              ]
-            }' > request.json
-
-          curl https://openrouter.ai/api/v1/chat/completions \
-            -H "Authorization: Bearer ${{ secrets.OPENROUTER_API_KEY }}" \
+          curl -X POST "https://openrouter.ai/api/v1/chat/completions" \
+            -H "Authorization: Bearer $OPENROUTER_API_KEY" \
             -H "Content-Type: application/json" \
             -H "HTTP-Referer: https://github.com" \
             -H "X-Title: SilkSpices Audit" \
-            -d @request.json \
+            --data @request.json \
             -o ai-response.json
 
       - name: Upload Lighthouse Report
