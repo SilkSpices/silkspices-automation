@@ -1,4 +1,4 @@
-name: Weekly Website Audit
+name: Weekly Website Intelligence
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Run Lighthouse
@@ -22,13 +22,12 @@ jobs:
           temporaryPublicStorage: true
 
       - name: Copy Lighthouse JSON
-        run: |
-          cp .lighthouseci/*.report.json report.json
+        run: cp .lighthouseci/*.report.json report.json
 
       - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
+        run: sudo apt-get update && sudo apt-get install -y jq bc
 
-      - name: Generate Executive Summary
+      - name: Extract Metrics
         run: |
           PERFORMANCE=$(jq '.categories.performance.score * 100' report.json | cut -d'.' -f1)
           SEO=$(jq '.categories.seo.score * 100' report.json | cut -d'.' -f1)
@@ -39,58 +38,78 @@ jobs:
           CLS=$(jq '.audits["cumulative-layout-shift"].numericValue' report.json)
           TBT=$(jq '.audits["total-blocking-time"].numericValue' report.json | cut -d'.' -f1)
 
+          echo "PERFORMANCE=$PERFORMANCE" >> metrics.env
+          echo "SEO=$SEO" >> metrics.env
+          echo "ACCESSIBILITY=$ACCESSIBILITY" >> metrics.env
+          echo "BEST=$BEST" >> metrics.env
+          echo "LCP=$LCP" >> metrics.env
+          echo "CLS=$CLS" >> metrics.env
+          echo "TBT=$TBT" >> metrics.env
+
+      - name: Load Metrics
+        run: cat metrics.env
+
+      - name: Generate Intelligence Reports
+        run: |
+          source metrics.env
+
+          # ----- Risk Calculation -----
           RISK="LOW"
-
           if [ "$PERFORMANCE" -lt 70 ]; then RISK="HIGH"; fi
-          if [ "$SEO" -lt 75 ]; then RISK="HIGH"; fi
-          if [ "$ACCESSIBILITY" -lt 70 ]; then RISK="MEDIUM"; fi
+          if [ "$LCP" -gt 3000 ]; then RISK="HIGH"; fi
+          if [ "$TBT" -gt 800 ]; then RISK="HIGH"; fi
 
-          echo "WEEKLY WEBSITE EXECUTIVE SUMMARY" > weekly-summary.txt
+          # ----- Revenue Impact Estimation -----
+          REVENUE_IMPACT="Minimal"
+          if [ "$LCP" -gt 4000 ]; then REVENUE_IMPACT="Estimated 20-30% conversion suppression"; fi
+          if [ "$PERFORMANCE" -lt 60 ]; then REVENUE_IMPACT="Estimated 25-40% revenue suppression"; fi
+
+          # ----- Executive Report -----
+          echo "WEEKLY WEBSITE INTELLIGENCE REPORT" > weekly-summary.txt
           echo "----------------------------------" >> weekly-summary.txt
           echo "" >> weekly-summary.txt
-          echo "Performance Score: $PERFORMANCE%" >> weekly-summary.txt
-          echo "SEO Score: $SEO%" >> weekly-summary.txt
-          echo "Accessibility Score: $ACCESSIBILITY%" >> weekly-summary.txt
-          echo "Best Practices Score: $BEST%" >> weekly-summary.txt
+          echo "Performance: $PERFORMANCE%" >> weekly-summary.txt
+          echo "SEO: $SEO%" >> weekly-summary.txt
+          echo "Accessibility: $ACCESSIBILITY%" >> weekly-summary.txt
+          echo "Best Practices: $BEST%" >> weekly-summary.txt
           echo "" >> weekly-summary.txt
-          echo "Core Web Vitals:" >> weekly-summary.txt
           echo "LCP: ${LCP}ms" >> weekly-summary.txt
           echo "CLS: $CLS" >> weekly-summary.txt
           echo "TBT: ${TBT}ms" >> weekly-summary.txt
           echo "" >> weekly-summary.txt
           echo "Overall Risk Level: $RISK" >> weekly-summary.txt
-          echo "" >> weekly-summary.txt
+          echo "Revenue Impact Estimate: $REVENUE_IMPACT" >> weekly-summary.txt
 
-          echo "Priority Recommendations:" >> weekly-summary.txt
+          # ----- Dev Action Plan -----
+          echo "TECHNICAL ACTION PLAN" > dev-action-plan.txt
+          echo "---------------------" >> dev-action-plan.txt
 
           if [ "$PERFORMANCE" -lt 80 ]; then
-            echo "- Improve page load speed (optimize images, enable caching, reduce JS)" >> weekly-summary.txt
+            echo "- Optimize image compression & next-gen formats" >> dev-action-plan.txt
+            echo "- Enable server-side caching" >> dev-action-plan.txt
+            echo "- Minify and defer JavaScript" >> dev-action-plan.txt
           fi
 
           if [ "$LCP" -gt 2500 ]; then
-            echo "- Reduce Largest Contentful Paint below 2.5s (server + hero image optimization)" >> weekly-summary.txt
+            echo "- Reduce LCP under 2.5s (optimize hero image & backend response time)" >> dev-action-plan.txt
           fi
 
           if (( $(echo "$CLS > 0.1" | bc -l) )); then
-            echo "- Reduce layout shift (define image dimensions, avoid dynamic layout shifts)" >> weekly-summary.txt
+            echo "- Define explicit width/height for images to reduce layout shift" >> dev-action-plan.txt
           fi
 
-          if [ "$SEO" -lt 85 ]; then
-            echo "- Improve meta tags, structured data, and internal linking" >> weekly-summary.txt
+          if [ "$TBT" -gt 600 ]; then
+            echo "- Break large JS bundles and remove unused scripts" >> dev-action-plan.txt
           fi
 
-          if [ "$ACCESSIBILITY" -lt 85 ]; then
-            echo "- Improve color contrast, ARIA labels, and accessibility compliance" >> weekly-summary.txt
-          fi
-
-      - name: Upload Lighthouse Report
+      - name: Upload Executive Report
         uses: actions/upload-artifact@v4
         with:
-          name: lighthouse-report
-          path: report.json
-
-      - name: Upload Weekly Executive Summary
-        uses: actions/upload-artifact@v4
-        with:
-          name: weekly-summary
+          name: executive-report
           path: weekly-summary.txt
+
+      - name: Upload Dev Action Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-action-plan
+          path: dev-action-plan.txt
