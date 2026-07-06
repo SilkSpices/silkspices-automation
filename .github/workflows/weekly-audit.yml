@@ -33,7 +33,7 @@ jobs:
           REPORT=$(jq -c . report.json | head -c 8000)
 
           jq -n \
-            --arg model "openchat/openchat-3.5-0106:free" \
+            --arg model "model": "openrouter/auto" \
             --arg content "You are an ecommerce website audit expert. Analyze this Lighthouse report and provide an executive summary, performance insights, SEO issues, accessibility risks, top 5 fixes, and revenue risk level.\n\n$REPORT" \
             '{
               model: $model,
