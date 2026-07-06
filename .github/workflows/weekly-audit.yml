@@ -13,7 +13,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run Lighthouse via Official Action
+      - name: Run Lighthouse
         uses: treosh/lighthouse-ci-action@v10
         with:
           urls: |
@@ -21,41 +21,76 @@ jobs:
           uploadArtifacts: false
           temporaryPublicStorage: true
 
-      - name: Copy Lighthouse Report
+      - name: Copy Lighthouse JSON
         run: |
           cp .lighthouseci/*.report.json report.json
 
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Create Safe AI Request JSON
+      - name: Generate Executive Summary
         run: |
-          REPORT=$(jq -c . report.json | head -c 8000)
+          PERFORMANCE=$(jq '.categories.performance.score * 100' report.json | cut -d'.' -f1)
+          SEO=$(jq '.categories.seo.score * 100' report.json | cut -d'.' -f1)
+          ACCESSIBILITY=$(jq '.categories.accessibility.score * 100' report.json | cut -d'.' -f1)
+          BEST=$(jq '.categories["best-practices"].score * 100' report.json | cut -d'.' -f1)
 
-          jq -n \
-            --arg model "model": "openrouter/auto" \
-            --arg content "You are an ecommerce website audit expert. Analyze this Lighthouse report and provide an executive summary, performance insights, SEO issues, accessibility risks, top 5 fixes, and revenue risk level.\n\n$REPORT" \
-            '{
-              model: $model,
-              messages: [
-                { role: "user", content: $content }
-              ]
-            }' > request.json
+          LCP=$(jq '.audits["largest-contentful-paint"].numericValue' report.json | cut -d'.' -f1)
+          CLS=$(jq '.audits["cumulative-layout-shift"].numericValue' report.json)
+          TBT=$(jq '.audits["total-blocking-time"].numericValue' report.json | cut -d'.' -f1)
 
-      - name: Call OpenRouter API
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: |
-          curl -X POST "https://openrouter.ai/api/v1/chat/completions" \
-            -H "Authorization: Bearer $OPENROUTER_API_KEY" \
-            -H "Content-Type: application/json" \
-            -H "HTTP-Referer: https://github.com" \
-            -H "X-Title: SilkSpices Audit" \
-            --data @request.json \
-            -o ai-response.json
+          RISK="LOW"
 
-      - name: Upload AI Analysis
+          if [ "$PERFORMANCE" -lt 70 ]; then RISK="HIGH"; fi
+          if [ "$SEO" -lt 75 ]; then RISK="HIGH"; fi
+          if [ "$ACCESSIBILITY" -lt 70 ]; then RISK="MEDIUM"; fi
+
+          echo "WEEKLY WEBSITE EXECUTIVE SUMMARY" > weekly-summary.txt
+          echo "----------------------------------" >> weekly-summary.txt
+          echo "" >> weekly-summary.txt
+          echo "Performance Score: $PERFORMANCE%" >> weekly-summary.txt
+          echo "SEO Score: $SEO%" >> weekly-summary.txt
+          echo "Accessibility Score: $ACCESSIBILITY%" >> weekly-summary.txt
+          echo "Best Practices Score: $BEST%" >> weekly-summary.txt
+          echo "" >> weekly-summary.txt
+          echo "Core Web Vitals:" >> weekly-summary.txt
+          echo "LCP: ${LCP}ms" >> weekly-summary.txt
+          echo "CLS: $CLS" >> weekly-summary.txt
+          echo "TBT: ${TBT}ms" >> weekly-summary.txt
+          echo "" >> weekly-summary.txt
+          echo "Overall Risk Level: $RISK" >> weekly-summary.txt
+          echo "" >> weekly-summary.txt
+
+          echo "Priority Recommendations:" >> weekly-summary.txt
+
+          if [ "$PERFORMANCE" -lt 80 ]; then
+            echo "- Improve page load speed (optimize images, enable caching, reduce JS)" >> weekly-summary.txt
+          fi
+
+          if [ "$LCP" -gt 2500 ]; then
+            echo "- Reduce Largest Contentful Paint below 2.5s (server + hero image optimization)" >> weekly-summary.txt
+          fi
+
+          if (( $(echo "$CLS > 0.1" | bc -l) )); then
+            echo "- Reduce layout shift (define image dimensions, avoid dynamic layout shifts)" >> weekly-summary.txt
+          fi
+
+          if [ "$SEO" -lt 85 ]; then
+            echo "- Improve meta tags, structured data, and internal linking" >> weekly-summary.txt
+          fi
+
+          if [ "$ACCESSIBILITY" -lt 85 ]; then
+            echo "- Improve color contrast, ARIA labels, and accessibility compliance" >> weekly-summary.txt
+          fi
+
+      - name: Upload Lighthouse Report
         uses: actions/upload-artifact@v4
         with:
-          name: ai-analysis
-          path: ai-response.json
+          name: lighthouse-report
+          path: report.json
+
+      - name: Upload Weekly Executive Summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-summary
+          path: weekly-summary.txt
