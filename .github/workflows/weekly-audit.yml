@@ -18,10 +18,10 @@ jobs:
         with:
           urls: |
             https://silk-spices.web.app/index.html
-          uploadArtifacts: true
+          uploadArtifacts: false
           temporaryPublicStorage: true
 
-      - name: Rename Lighthouse Report
+      - name: Copy Lighthouse Report
         run: |
           cp .lighthouseci/*.report.json report.json
 
