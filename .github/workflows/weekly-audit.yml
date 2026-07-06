@@ -47,7 +47,6 @@ jobs:
           echo "$DATE,$PERFORMANCE,$SEO,$ACCESSIBILITY,$BEST,$LCP,$CLS,$TBT" >> metrics-history.csv
 
       - name: Compute Trend & Regression
-        id: trend
         run: |
           ROWS=$(wc -l < metrics-history.csv)
 
@@ -147,15 +146,24 @@ jobs:
         with:
           name: performance-chart
           path: performance-trend.png
-      - name: Send Email Report
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.sendgrid.net
-          server_port: 587
-          username: apikey
-          password: ${{ secrets.SENDGRID_API_KEY }}
-          subject: Weekly Website Intelligence Report
-          to: trade@silkpathenterprise.com
-          from: silkspices.automation@gmail.com
-          body: file://weekly-summary.txt
-          attachments: performance-trend.png
+
+      - name: Send Email via SendGrid API
+        env:
+          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+        run: |
+          CONTENT=$(cat weekly-summary.txt | sed ':a;N;$!ba;s/\n/\\n/g')
+
+          curl -X POST https://api.sendgrid.com/v3/mail/send \
+            -H "Authorization: Bearer $SENDGRID_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"personalizations\": [{
+                \"to\": [{\"email\": \"trade@silkpathenterprise.com\"}]
+              }],
+              \"from\": {\"email\": \"silkspices.automation@gmail.com\"},
+              \"subject\": \"Weekly Website Intelligence Report\",
+              \"content\": [{
+                \"type\": \"text/plain\",
+                \"value\": \"$CONTENT\"
+              }]
+            }"
