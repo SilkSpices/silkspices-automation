@@ -147,3 +147,15 @@ jobs:
         with:
           name: performance-chart
           path: performance-trend.png
+      - name: Send Email Report
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.sendgrid.net
+          server_port: 587
+          username: apikey
+          password: ${{ secrets.SENDGRID_API_KEY }}
+          subject: Weekly Website Intelligence Report
+          to: trade@silkpathenterprise.com
+          from: silkspices.automation@gmail.com
+          body: file://weekly-summary.txt
+          attachments: performance-trend.png
